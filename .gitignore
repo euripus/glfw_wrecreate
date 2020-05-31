@@ -1,0 +1,11 @@
+*.[oa]
+*.dll
+*.lib
+*.exe
+*~
+*.user
+*.user.*
+obj/
+bin/
+include/
+
