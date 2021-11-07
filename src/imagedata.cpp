@@ -4,6 +4,7 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+#include <cstddef>
 
 #pragma pack(push, 1)
 struct BITMAPFILEHEADER
@@ -78,7 +79,7 @@ bool ReadBMP(std::string const & file_name, ImageData & id)
     if(s)
     {
         s.seekg(0, std::ios::end);
-        file_length = s.tellp();
+        file_length = static_cast<size_t>(s.tellp());
         s.seekg(0, std::ios::beg);
     }
 
@@ -86,7 +87,7 @@ bool ReadBMP(std::string const & file_name, ImageData & id)
         return res;
 
     auto buffer_storage = std::make_unique<int8_t[]>(file_length);
-    s.read(reinterpret_cast<char *>(buffer_storage.get()), file_length);
+    s.read(reinterpret_cast<char *>(buffer_storage.get()), static_cast<std::streamsize>(file_length));
     s.close();
 
     auto buffer = buffer_storage.get();
@@ -100,7 +101,7 @@ bool ReadBMP(std::string const & file_name, ImageData & id)
     if(reinterpret_cast<uint32_t *>(pPtr)[0] == 12)
     {
         BITMAPINFO12 * pInfo = reinterpret_cast<BITMAPINFO12 *>(pPtr);
-        pPtr += pInfo->biSize;
+        // pPtr += pInfo->biSize;
 
         if(pInfo->biBitCount != 24 && pInfo->biBitCount != 32)
             return res;
@@ -116,7 +117,7 @@ bool ReadBMP(std::string const & file_name, ImageData & id)
     else
     {
         BITMAPINFO * pInfo = reinterpret_cast<BITMAPINFO *>(pPtr);
-        pPtr += pInfo->biSize;
+        // pPtr += pInfo->biSize;
 
         if(pInfo->biBitCount != 24 && pInfo->biBitCount != 32)
             return res;
@@ -282,7 +283,7 @@ bool ReadTGA(std::string const & file_name, ImageData & id)
     if(s)
     {
         s.seekg(0, std::ios::end);
-        file_length = s.tellp();
+        file_length = static_cast<size_t>(s.tellp());
         s.seekg(0, std::ios::beg);
     }
 
@@ -290,14 +291,14 @@ bool ReadTGA(std::string const & file_name, ImageData & id)
         return false;
 
     auto buffer_storage = std::make_unique<int8_t[]>(file_length);
-    s.read(reinterpret_cast<char *>(buffer_storage.get()), file_length);
+    s.read(reinterpret_cast<char *>(buffer_storage.get()), static_cast<std::streamsize>(file_length));
     s.close();
 
     auto buffer = reinterpret_cast<char *>(buffer_storage.get());
 
     auto        pPtr    = buffer;
     TGAHEADER * pHeader = reinterpret_cast<TGAHEADER *>(pPtr);
-    pPtr += sizeof(TGAHEADER);
+    // pPtr += sizeof(TGAHEADER);
 
     if(pHeader->datatypecode == 2)
     {
@@ -335,7 +336,7 @@ bool ReadUncompressedTGA(ImageData & id, char * data)
 
     auto img = std::make_unique<uint8_t[]>(image_size);
 
-    char red, green, blue, alpha;
+    unsigned char red, green, blue, alpha;
     for(uint32_t i = 0; i < id.width * id.height; ++i)
     {
         red   = pPtr[i * bytes_per_pixel + 2];
@@ -508,4 +509,4 @@ bool ReadCompressedTGA(ImageData & id, char * data)
     id.data = std::move(img);
     return true;
 }
-}   // namespace evnt
+}   // namespace tex
