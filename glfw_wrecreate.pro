@@ -21,9 +21,14 @@ INCLUDEPATH += $$PWD/include
 
 LIBS += -L$$PWD/lib
 
-LIBS += -lglfw3dll -lopengl32 -lglew32.dll
-LIBS += -static-libgcc -static-libstdc++
-LIBS += -static -lpthread
+unix:{
+    LIBS += -lglfw -lGL -lGLEW
+}
+win32:{
+    LIBS += -lglfw3dll -lopengl32 -lglew32.dll
+    LIBS += -static-libgcc -static-libstdc++
+    LIBS += -static -lpthread
+}
 
 SOURCES += \
     src/imagedata.cpp \
