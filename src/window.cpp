@@ -168,13 +168,13 @@ void Window::initScene()
 
     glGenTextures(1, &m_texture);
     glBindTexture(GL_TEXTURE_2D, m_texture);
-
-    glTexImage2D(GL_TEXTURE_2D, 0, tex_data.type == tex::ImageData::PixelType::pt_rgb ? 3 : 4, tex_data.width,
-                 tex_data.height, 0, tex_data.type == tex::ImageData::PixelType::pt_rgb ? GL_RGB : GL_RGBA,
-                 GL_UNSIGNED_BYTE, tex_data.data.get());
-
+    glTexImage2D(GL_TEXTURE_2D, 0, tex_data.type == tex::ImageData::PixelType::pt_rgb ? 3 : 4,
+                 static_cast<GLsizei>(tex_data.width), static_cast<GLsizei>(tex_data.height), 0,
+                 tex_data.type == tex::ImageData::PixelType::pt_rgb ? GL_RGB : GL_RGBA, GL_UNSIGNED_BYTE,
+                 tex_data.data.get());
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
     glBindTexture(GL_TEXTURE_2D, 0);
 
     glGenBuffers(1, &m_vertexbuffer);

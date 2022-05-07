@@ -1,10 +1,8 @@
 #include "imagedata.h"
 #include <cstring>
+#include <vector>
 #include <fstream>
 #include <iostream>
-#include <memory>
-#include <vector>
-#include <cstddef>
 
 #pragma pack(push, 1)
 struct BITMAPFILEHEADER
@@ -75,24 +73,35 @@ bool ReadBMP(std::string const & file_name, ImageData & id)
     if(id.data)
         id.data.reset(nullptr);
 
-    std::fstream s(file_name, s.binary | s.in);
-    if(s)
-    {
-        s.seekg(0, std::ios::end);
-        file_length = static_cast<size_t>(s.tellp());
-        s.seekg(0, std::ios::beg);
-    }
+    std::ifstream        ifile(file_name, std::ios::binary);
+    std::vector<uint8_t> file;
 
+    if(ifile.is_open())
+    {
+        ifile.seekg(0, std::ios_base::end);
+        auto length = ifile.tellg();
+        ifile.seekg(0, std::ios_base::beg);
+
+        file.resize(static_cast<size_t>(length));
+
+        ifile.read(reinterpret_cast<char *>(file.data()), length);
+
+        auto success = !ifile.fail() && length == ifile.gcount();
+        ifile.close();
+
+        if(!success)
+            return false;
+    }
+    else
+        return false;
+
+    file_length = file.size();
     if(file_length == 0)
         return res;
 
-    auto buffer_storage = std::make_unique<int8_t[]>(file_length);
-    s.read(reinterpret_cast<char *>(buffer_storage.get()), static_cast<std::streamsize>(file_length));
-    s.close();
+    auto * buffer = file.data();
 
-    auto buffer = buffer_storage.get();
-
-    auto               pPtr    = buffer;
+    auto *             pPtr    = buffer;
     BITMAPFILEHEADER * pHeader = reinterpret_cast<BITMAPFILEHEADER *>(pPtr);
     pPtr += sizeof(BITMAPFILEHEADER);
     if(pHeader->bfSize != file_length || pHeader->bfType != 0x4D42)   // little-endian
@@ -101,7 +110,6 @@ bool ReadBMP(std::string const & file_name, ImageData & id)
     if(reinterpret_cast<uint32_t *>(pPtr)[0] == 12)
     {
         BITMAPINFO12 * pInfo = reinterpret_cast<BITMAPINFO12 *>(pPtr);
-        // pPtr += pInfo->biSize;
 
         if(pInfo->biBitCount != 24 && pInfo->biBitCount != 32)
             return res;
@@ -117,7 +125,6 @@ bool ReadBMP(std::string const & file_name, ImageData & id)
     else
     {
         BITMAPINFO * pInfo = reinterpret_cast<BITMAPINFO *>(pPtr);
-        // pPtr += pInfo->biSize;
 
         if(pInfo->biBitCount != 24 && pInfo->biBitCount != 32)
             return res;
@@ -137,11 +144,11 @@ bool ReadBMP(std::string const & file_name, ImageData & id)
         else
             id.type = ImageData::PixelType::pt_rgba;
 
-        id.width = pInfo->biWidth;
+        id.width = static_cast<uint32_t>(pInfo->biWidth);
 
         if(pInfo->biHeight < 0)
             flip = true;
-        id.height = std::abs(pInfo->biHeight);
+        id.height = static_cast<uint32_t>(std::abs(pInfo->biHeight));
     }
 
     // read data:
@@ -225,13 +232,11 @@ bool ReadBMP(std::string const & file_name, ImageData & id)
 //==============================================================================
 //         TGA section
 //==============================================================================
-bool WriteTGA(std::string fname, const ImageData & id)
+bool WriteTGA(std::string file_name, ImageData const & id)
 {
     TGAHEADER tga;
     std::memset(&tga, 0, sizeof(tga));
     uint8_t bytes_per_pixel = (id.type == ImageData::PixelType::pt_rgb ? 3 : 4);
-
-    std::vector<std::byte> buffer;
 
     tga.datatypecode = 2;
     tga.width        = static_cast<uint16_t>(id.width);
@@ -242,12 +247,12 @@ bool WriteTGA(std::string fname, const ImageData & id)
     else
         tga.imagedescriptor = 0x18;
 
-    buffer.reserve(buffer.size() + sizeof(tga));
-    buffer.insert(std::end(buffer), reinterpret_cast<std::byte *>(&tga),
-                  reinterpret_cast<std::byte *>(&tga) + sizeof(tga));
+    std::vector<uint8_t> out_data;
+    out_data.resize(sizeof(tga));
+    std::memcpy(out_data.data(), &tga, sizeof(tga));
 
-    std::byte * data_ptr = reinterpret_cast<std::byte *>(id.data.get());
-    std::byte   red, green, blue, alpha;
+    uint8_t * data_ptr = id.data.get();
+    uint8_t   red, green, blue, alpha;
     for(uint32_t i = 0; i < id.width * id.height * bytes_per_pixel; i += bytes_per_pixel)
     {
         red   = data_ptr[i + 0];
@@ -256,18 +261,19 @@ bool WriteTGA(std::string fname, const ImageData & id)
         if(bytes_per_pixel == 4)
             alpha = data_ptr[i + 3];
 
-        buffer.push_back(blue);
-        buffer.push_back(green);
-        buffer.push_back(red);
+        out_data.push_back(blue);
+        out_data.push_back(green);
+        out_data.push_back(red);
         if(id.type == ImageData::PixelType::pt_rgba)
-            buffer.push_back(alpha);
+            out_data.push_back(alpha);
     }
 
-    std::ofstream outfile(fname, std::ios::out | std::ios::binary);
-    if(outfile)
-        outfile.write(reinterpret_cast<char *>(buffer.data()), buffer.size());
-    else
+    std::ofstream ofile(file_name, std::ios::binary);
+    if(!ofile.is_open())
         return false;
+
+    ofile.write(reinterpret_cast<char *>(out_data.data()), static_cast<std::streamsize>(out_data.size()));
+    ofile.close();
 
     return true;
 }
@@ -279,26 +285,36 @@ bool ReadTGA(std::string const & file_name, ImageData & id)
 {
     size_t file_length = 0;
 
-    std::fstream s(file_name, s.binary | s.in);
-    if(s)
-    {
-        s.seekg(0, std::ios::end);
-        file_length = static_cast<size_t>(s.tellp());
-        s.seekg(0, std::ios::beg);
-    }
+    std::ifstream     ifile(file_name, std::ios::binary);
+    std::vector<char> file;
 
+    if(ifile.is_open())
+    {
+        ifile.seekg(0, std::ios_base::end);
+        auto length = ifile.tellg();
+        ifile.seekg(0, std::ios_base::beg);
+
+        file.resize(static_cast<size_t>(length));
+
+        ifile.read(reinterpret_cast<char *>(file.data()), length);
+
+        auto success = !ifile.fail() && length == ifile.gcount();
+        ifile.close();
+
+        if(!success)
+            return false;
+    }
+    else
+        return false;
+
+    file_length = file.size();
     if(file_length == 0)
         return false;
 
-    auto buffer_storage = std::make_unique<int8_t[]>(file_length);
-    s.read(reinterpret_cast<char *>(buffer_storage.get()), static_cast<std::streamsize>(file_length));
-    s.close();
-
-    auto buffer = reinterpret_cast<char *>(buffer_storage.get());
+    auto * buffer = file.data();
 
     auto        pPtr    = buffer;
     TGAHEADER * pHeader = reinterpret_cast<TGAHEADER *>(pPtr);
-    // pPtr += sizeof(TGAHEADER);
 
     if(pHeader->datatypecode == 2)
     {
@@ -318,7 +334,7 @@ bool ReadUncompressedTGA(ImageData & id, char * data)
     TGAHEADER * pHeader = reinterpret_cast<TGAHEADER *>(pPtr);
     pPtr += sizeof(TGAHEADER);
 
-    if((pHeader->width <= 0) || (pHeader->height <= 0)
+    if((pHeader->width == 0) || (pHeader->height == 0)
        || ((pHeader->bitsperpixel != 24)
            && (pHeader->bitsperpixel != 32)))   // Make sure all information is valid
     {
@@ -336,20 +352,21 @@ bool ReadUncompressedTGA(ImageData & id, char * data)
 
     auto img = std::make_unique<uint8_t[]>(image_size);
 
-    unsigned char red, green, blue, alpha;
     for(uint32_t i = 0; i < id.width * id.height; ++i)
     {
+        char red, green, blue, alpha;
+
         red   = pPtr[i * bytes_per_pixel + 2];
         green = pPtr[i * bytes_per_pixel + 1];
         blue  = pPtr[i * bytes_per_pixel + 0];
         if(id.type == ImageData::PixelType::pt_rgba)
             alpha = pPtr[i * bytes_per_pixel + 3];
 
-        img[i * bytes_per_pixel + 0] = red;
-        img[i * bytes_per_pixel + 1] = green;
-        img[i * bytes_per_pixel + 2] = blue;
+        img[i * bytes_per_pixel + 0] = static_cast<uint8_t>(red);
+        img[i * bytes_per_pixel + 1] = static_cast<uint8_t>(green);
+        img[i * bytes_per_pixel + 2] = static_cast<uint8_t>(blue);
         if(id.type == ImageData::PixelType::pt_rgba)
-            img[i * bytes_per_pixel + 3] = alpha;
+            img[i * bytes_per_pixel + 3] = static_cast<uint8_t>(alpha);
     }
 
     if(flip_vertical)
@@ -399,7 +416,7 @@ bool ReadCompressedTGA(ImageData & id, char * data)
     TGAHEADER * pHeader = reinterpret_cast<TGAHEADER *>(pPtr);
     pPtr += sizeof(TGAHEADER);
 
-    if((pHeader->width <= 0) || (pHeader->height <= 0)
+    if((pHeader->width == 0) || (pHeader->height == 0)
        || ((pHeader->bitsperpixel != 24)
            && (pHeader->bitsperpixel != 32)))   // Make sure all information is valid
     {
@@ -422,19 +439,19 @@ bool ReadCompressedTGA(ImageData & id, char * data)
 
     do
     {
-        int32_t chunk = static_cast<int32_t>(pPtr[0]);
+        unsigned char chunk = static_cast<unsigned char>(pPtr[0]);
         pPtr++;
 
-        if(chunk & 128)
+        if(chunk > 128)
         {
             chunk -= 127;
             for(int32_t counter = 0; counter < chunk; counter++)
             {
-                img[currentbyte + 0] = pPtr[2];
-                img[currentbyte + 1] = pPtr[1];
-                img[currentbyte + 2] = pPtr[0];
+                img[currentbyte + 0] = static_cast<uint8_t>(pPtr[2]);
+                img[currentbyte + 1] = static_cast<uint8_t>(pPtr[1]);
+                img[currentbyte + 2] = static_cast<uint8_t>(pPtr[0]);
                 if(id.type == ImageData::PixelType::pt_rgba)
-                    img[currentbyte + 3] = pPtr[3];
+                    img[currentbyte + 3] = static_cast<uint8_t>(pPtr[3]);
 
                 currentbyte += bytes_per_pixel;
                 currentpixel++;
@@ -451,11 +468,11 @@ bool ReadCompressedTGA(ImageData & id, char * data)
             chunk++;
             for(short counter = 0; counter < chunk; counter++)
             {
-                img[currentbyte + 0] = pPtr[2];
-                img[currentbyte + 1] = pPtr[1];
-                img[currentbyte + 2] = pPtr[0];
+                img[currentbyte + 0] = static_cast<uint8_t>(pPtr[2]);
+                img[currentbyte + 1] = static_cast<uint8_t>(pPtr[1]);
+                img[currentbyte + 2] = static_cast<uint8_t>(pPtr[0]);
                 if(id.type == ImageData::PixelType::pt_rgba)
-                    img[currentbyte + 3] = pPtr[3];
+                    img[currentbyte + 3] = static_cast<uint8_t>(pPtr[3]);
 
                 currentbyte += bytes_per_pixel;
                 currentpixel++;
